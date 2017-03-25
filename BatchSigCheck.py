@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import re
+import sys
 import tempfile
 
 class BatchSigCheck:
@@ -47,38 +48,46 @@ class BatchSigCheck:
         too_big = 0
         total = 0
 
-        with codecs.open(self.layout_ini, 'r', encoding='utf-16-le') as f:
-            for line in f:
-                total += 1
-                line = line.strip()
-                if not any(re.search(rx, line, flags=re.UNICODE|re.IGNORECASE) for rx in self._INSIST):
-                    ignored += 1
-                else:
-                    if any(re.search(rx, line, flags=re.UNICODE|re.IGNORECASE) for rx in self._SKIP):
-                        skipped += 1
+        try:
+            with codecs.open(self.layout_ini, 'r', encoding='utf-16-le') as f:
+                for line in f:
+                    total += 1
+                    line = line.strip()
+                    if not any(re.search(rx, line, flags=re.UNICODE|re.IGNORECASE) for rx in self._INSIST):
+                        ignored += 1
                     else:
-                        local_path = translate_path(os.path.join(_trunk, os.sep.join(line.split('\\')[1:])))
-                        if os.path.getsize(local_path) > self._MAX_SIZE:
-                            logging.info('file too big: %s' % line)
-                            too_big += 1
-                            continue
-                        md5 = hashlib.md5(open(local_path, 'rb').read()).hexdigest().upper()
-                        if md5 in self.files:
-                            self.files[md5]['paths'].append(line)
-                            dupes += 1
+                        if any(re.search(rx, line, flags=re.UNICODE|re.IGNORECASE) for rx in self._SKIP):
+                            skipped += 1
                         else:
-                            self.files[md5] = {}
-                            self.files[md5]['paths'] = [line]
-                            self.files[md5]['local_path'] = local_path
+                            local_path = translate_path(os.path.join(_trunk, os.sep.join(line.split('\\')[1:])))
+                            if os.path.getsize(local_path) > self._MAX_SIZE:
+                                logging.info('file too big: %s' % line)
+                                too_big += 1
+                                continue
+                            try:
+                                md5 = hashlib.md5(open(local_path, 'rb').read()).hexdigest().upper()
+                                if md5 in self.files:
+                                    self.files[md5]['paths'].append(line)
+                                    dupes += 1
+                                else:
+                                    self.files[md5] = {}
+                                    self.files[md5]['paths'] = [line]
+                                    self.files[md5]['local_path'] = local_path
+                            except IOError as e:
+                                logger.error(e)
 
-        logging.info('Total Lines: %i' % total)
-        logging.info('Duplicates: %i' % dupes)
-        logging.info('Ignored: %i' % ignored)
-        logging.info('Skipped: %i' % skipped)
-        logging.info('Too Big: %i' % too_big)
-        logging.info('To Process: %i' % len(self.files))
-
-        return len(self.files)
+            logging.info('Total Lines: %i' % total)
+            logging.info('Duplicates: %i' % dupes)
+            logging.info('Ignored: %i' % ignored)
+            logging.info('Skipped: %i' % skipped)
+            logging.info('Too Big: %i' % too_big)
+            logging.info('To Process: %i' % len(self.files))
+            
+            return len(self.files)
+        
+        except IOError as e:
+            logger.error(e)
+            sys.exit(1)
 
     def create_lnks(self):
 
@@ -121,7 +130,6 @@ if __name__ == '__main__':
     stream_handler.setFormatter(formatter)
     file_handler = logging.FileHandler(os.path.join(args.out_dir, '{}_BatchSigCheck.log'.format(now)))
     file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
