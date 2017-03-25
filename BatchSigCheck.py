@@ -26,10 +26,11 @@ class BatchSigCheck:
         ur'^C:\\Windows\\Syswow64\\'
     ]
 
-    def __init__(self, layout_ini, out_dir, now):
+    def __init__(self, layout_ini, out_dir, root, now):
 
         self.layout_ini = layout_ini
         self.out_dir = os.path.abspath(out_dir)
+        self.root = root
         self.now = now
 
         logging.info('Processing: %s' % self.layout_ini)
@@ -38,8 +39,12 @@ class BatchSigCheck:
 
     def parse_layout(self):
 
-        _trunk  = os.path.abspath(os.path.join(self.layout_ini, os.pardir, os.pardir, os.pardir))
-        logging.debug('Calculated root as: %s' % _trunk)
+        if self.root:
+            _trunk = self.root
+            logging.info('User provided root as: %s' % _trunk)
+        else:
+            _trunk  = os.path.abspath(os.path.join(self.layout_ini, os.pardir, os.pardir, os.pardir))
+            logging.info('Calculated root as: %s' % _trunk)
 
         self.files = {}
         dupes = 0
@@ -82,9 +87,9 @@ class BatchSigCheck:
             logging.info('Skipped: %i' % skipped)
             logging.info('Too Big: %i' % too_big)
             logging.info('To Process: %i' % len(self.files))
-            
+
             return len(self.files)
-        
+
         except IOError as e:
             logger.error(e)
             sys.exit(1)
@@ -119,6 +124,7 @@ if __name__ == '__main__':
     argp = argparse.ArgumentParser()
     argp.add_argument('layout_ini', help='Path of Layout.ini file to process.')
     argp.add_argument('out_dir', help='Directory into which to save the output.')
+    argp.add_argument('--root', help='Insist root of volume is this folder, e.g. G:\\')
     args = argp.parse_args()
 
     now = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
@@ -133,7 +139,7 @@ if __name__ == '__main__':
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
-    batchsigcheck = BatchSigCheck(args.layout_ini, args.out_dir, now)
+    batchsigcheck = BatchSigCheck(args.layout_ini, args.out_dir, args.root, now)
     if batchsigcheck.parse_layout() > 0:
         batchsigcheck.create_lnks()
         batchsigcheck.run()
