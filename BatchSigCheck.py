@@ -38,7 +38,7 @@ class BatchSigCheck:
 
 	def __init__(self, layout_ini, out_dir, root, now):
 
-		self.layout_ini = layout_ini
+		self.layout_ini = os.path.abspath(layout_ini)
 		self.out_dir = os.path.abspath(out_dir)
 		self.root = root
 		self.now = now
@@ -121,18 +121,22 @@ class BatchSigCheck:
 
 	def run(self):
 
-		sigcheck_out = os.path.join(self.out_dir, '{}_BatchSigCheck.csv'.format(self.now))
-		rta_out = os.path.join(self.out_dir, '{}_BatchSigCheck.txt'.format(self.now))
-		logging.info('SigCheck Output to \'%s\'' % sigcheck_out)
-		logging.info('Runtime Analysis to \'%s\'' % rta_out)
+		if not hasattr(self, 'lnk_dir'):
+			return
 
-		cmd = self._SIGCHECK_CMD.format(
-			self._SIGCHECK_EXE,
-			self._SIGCHECK_ARGS.format(self.lnk_dir)
-		)
-		logger.info('Running command: %s' % cmd)
+		if len(os.listdir(self.lnk_dir)) > 0:
+			sigcheck_out = os.path.join(self.out_dir, '{}_BatchSigCheck.csv'.format(self.now))
+			rta_out = os.path.join(self.out_dir, '{}_BatchSigCheck.txt'.format(self.now))
+			logging.info('SigCheck Output to \'%s\'' % sigcheck_out)
+			logging.info('Runtime Analysis to \'%s\'' % rta_out)
 
-		logging.info('Tidying up.')
+			cmd = self._SIGCHECK_CMD.format(
+				self._SIGCHECK_EXE,
+				self._SIGCHECK_ARGS.format(self.lnk_dir)
+			)
+			logger.info('Running command: %s' % cmd)
+
+		logging.info('Removing temporary folder.')
 		shutil.rmtree(self.lnk_dir)
 		logging.info('Done.')
 
