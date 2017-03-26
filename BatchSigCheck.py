@@ -1,13 +1,17 @@
 import argparse
 import codecs
+import csv
 import datetime
 import hashlib
 import logging
 import os
 import re
 import shutil
+import StringIO
+import subprocess
 import sys
 import tempfile
+import win32file
 
 class BatchSigCheck:
 
@@ -28,7 +32,7 @@ class BatchSigCheck:
 		ur'^C:\\Windows\\System32\\',
 		ur'^C:\\Windows\\Syswow64\\'
 	]
-	
+
 	_SUSPICIOUS = [
 		'\\ProgramData\\',
 		'\\Recycler\\',
@@ -65,6 +69,7 @@ class BatchSigCheck:
 		total = 0
 
 		try:
+			logger.info('Building hash table...')
 			with codecs.open(self.layout_ini, 'r', encoding='utf-16-le') as f:
 				for line in f:
 					total += 1
@@ -93,6 +98,7 @@ class BatchSigCheck:
 								self.files[md5] = {}
 								self.files[md5]['paths'] = [line]
 								self.files[md5]['local_path'] = local_path
+			logger.info('Done.')
 
 			logging.info('Total Lines: %i' % total)
 			logging.info('Duplicates: %i' % dupes)
@@ -114,10 +120,13 @@ class BatchSigCheck:
 		self.lnk_dir = tempfile.mkdtemp()
 		logger.info('Created temporary folder: %s' % self.lnk_dir)
 
+		logger.info('Creating LNKs...')
 		for file in self.files:
-			a = self.files[file]['local_path']
-			b = os.path.join(self.lnk_dir, '{}.lnk'.format(file))
-			logger.info('%s --> %s' % (a, b))
+			lnk = win32file.CreateSymbolicLink(
+				os.path.join(self.lnk_dir, '{}.lnk'.format(file)),
+				self.files[file]['local_path']
+			)
+		logger.info('Done; created %i LNKs.' % len(os.listdir(self.lnk_dir)))
 
 	def run(self):
 
@@ -135,10 +144,86 @@ class BatchSigCheck:
 				self._SIGCHECK_ARGS.format(self.lnk_dir)
 			)
 			logger.info('Running command: %s' % cmd)
+			# I know there's a security risk with shell=True, but
+			# even with shlex I couldn't get it to work.
+			# Also,
+			# sigcheck seems to return non-zero (1) even on success???
+			try:
+				subprocess.check_output(cmd, shell=True)
+			except subprocess.CalledProcessError, e:
+				self.result = e.output
 
-		logging.info('Removing temporary folder.')
-		shutil.rmtree(self.lnk_dir)
-		logging.info('Done.')
+			logging.info('Removing temporary folder.')
+			shutil.rmtree(self.lnk_dir)
+
+			result = []
+			csv_reader = csv.reader(StringIO.StringIO(self.result), delimiter='\t')
+			for row in csv_reader:
+				if row[0].endswith('.lnk'):
+					row[0] = self.files[row[16]]['paths'][0] # 16 = md5
+					result.append(row)
+				else:
+					result.append(row)
+
+			logger.info('Writing SigCheck output... ')
+			with open(sigcheck_out, 'wb') as csv_out:
+				csv_writer = csv.writer(csv_out, delimiter='\t')
+				csv_writer.writerows(result)
+			logger.info('Done, wrote header + {:,} lines.'.format(len(result) - 1))
+
+			# Check for non-binaries that were ignored
+			# Gather folder heuristics
+			# Check against suspicious strings
+			logger.info('Analysing output...')
+
+			processed_md5s = [row[16] for row in result]
+			non_binaries_md5 = set(self.files) - set(processed_md5s)
+			non_binaries = [self.files[md5]['paths'][0] for md5 in non_binaries_md5]
+			processed_md5s = non_binaries_md5 = None
+			logger.info('%i files were skipped by SigCheck.' % len(non_binaries))
+
+			folders = {}
+			suspicious = []
+			for i, row in enumerate(result):
+				if i==0: continue # Skip header
+				if os.path.dirname(row[0]) in folders:
+					folders[os.path.dirname(row[0])] += 1
+				else:
+					folders[os.path.dirname(row[0])] = 1
+				if any(s.upper() in row[0].upper() for s in self._SUSPICIOUS):
+					suspicious.append(row[0])
+
+			logger.info('Writing RTA output...')
+			with open(rta_out, 'wb') as rta:
+
+				rta.write('Non-Binaries:\n')
+				rta.write('=============\n')
+				if len(non_binaries) < 1:
+					rta.write('None\n')
+				else:
+					[rta.write('{}\n'.format(non_binary)) for non_binary in non_binaries]
+				rta.write('\n')
+
+				rta.write('Folder Heuristics:\n')
+				rta.write('==================\n')
+				got_heuristics = False
+				for folder in folders:
+					if folders[folder] <= self._LOW_LOADS:
+						got_heuristics = True
+						rta.write('{:,}\t{}\n'.format(folders[folder], folder))
+				if not got_heuristics:
+					rta.write('None\n')
+				rta.write('\n')
+
+				rta.write('Suspicious:\n')
+				rta.write('===========\n')
+				if len(suspicious) < 1:
+					rta.write('None\n')
+				else:
+					for suspect in suspicious:
+						rta.write('{}\n'.format(suspect))
+
+			logging.info('Done.')
 
 def translate_path(dir):
 
