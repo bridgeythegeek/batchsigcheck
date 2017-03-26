@@ -5,13 +5,15 @@ import hashlib
 import logging
 import os
 import re
+import shutil
 import sys
 import tempfile
 
 class BatchSigCheck:
 
-	_SIGCHECK_EXE   = 'C:\\tools\\SysinternalsSuite\\sigcheck.exe'
-	_SIGCHECK_ARGS  = '-nobanner -a -h -ct {0}'
+	_SIGCHECK_EXE	= 'C:\\tools\\SysinternalsSuite\\sigcheck.exe'
+	_SIGCHECK_ARGS	= '-nobanner -a -ct -e -h {0}'
+	_SIGCHECK_CMD	= '{} {}'
 
 	_MAX_SIZE = 50 * 1048576 # 50MiB
 	_LOW_LOADS = 1 # Highlight folders with only this many or fewer files loaded
@@ -100,16 +102,22 @@ class BatchSigCheck:
 			logging.info('Errored: %i' % error)
 			logging.info('To Process: %i' % len(self.files))
 
-			return len(self.files)
-
 		except IOError as e:
 			logger.error(e)
 			sys.exit(1)
 
 	def create_lnks(self):
 
+		if len(self.files) < 1:
+			return
+
+		self.lnk_dir = tempfile.mkdtemp()
+		logger.info('Created temporary folder: %s' % self.lnk_dir)
+
 		for file in self.files:
-			logging.info('%s = %s' % (file, self.files[file]))
+			a = self.files[file]['local_path']
+			b = os.path.join(self.lnk_dir, '{}.lnk'.format(file))
+			logger.info('%s --> %s' % (a, b))
 
 	def run(self):
 
@@ -117,6 +125,16 @@ class BatchSigCheck:
 		rta_out = os.path.join(self.out_dir, '{}_BatchSigCheck.txt'.format(self.now))
 		logging.info('SigCheck Output to \'%s\'' % sigcheck_out)
 		logging.info('Runtime Analysis to \'%s\'' % rta_out)
+
+		cmd = self._SIGCHECK_CMD.format(
+			self._SIGCHECK_EXE,
+			self._SIGCHECK_ARGS.format(self.lnk_dir)
+		)
+		logger.info('Running command: %s' % cmd)
+
+		logging.info('Tidying up.')
+		shutil.rmtree(self.lnk_dir)
+		logging.info('Done.')
 
 def translate_path(dir):
 
@@ -141,7 +159,7 @@ if __name__ == '__main__':
 
 	now = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 
-	formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s', datefmt='[%Y-%m-%d %H:%M:%S]')
+	formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s', datefmt='[%Y-%m-%d %H:%M:%S]')
 	logger = logging.getLogger()
 	logger.setLevel(logging.INFO)
 	stream_handler = logging.StreamHandler()
@@ -152,6 +170,6 @@ if __name__ == '__main__':
 	logger.addHandler(stream_handler)
 
 	batchsigcheck = BatchSigCheck(args.layout_ini, args.out_dir, args.root, now)
-	if batchsigcheck.parse_layout() > 0:
-		batchsigcheck.create_lnks()
-		batchsigcheck.run()
+	batchsigcheck.parse_layout()
+	batchsigcheck.create_lnks()
+	batchsigcheck.run()
