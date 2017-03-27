@@ -270,8 +270,8 @@ class BatchSigCheck:
                         if folders[folder] <= self._LOW_LOADS:
                             sql = 'INSERT INTO heur VALUES("{}", {});'.format(folder, folders[folder])
                             c.execute(sql)
-            except:
-                logger.error('--!--')
+            except Exception as e:
+                logger.error('Error creating SQLite file: %s' % e)
             finally:
                 if conn:
                     conn.commit()
