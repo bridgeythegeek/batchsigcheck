@@ -147,14 +147,18 @@ class BatchSigCheck:
             logger.info('Running command: %s' % cmd)
             # I know there's a security risk with shell=True, but
             # even with shlex I couldn't get it to work.
-            # Also,
-            # sigcheck seems to return non-zero (1) even on success???
+            # Also, sigcheck seems to return...
+            # -1  if it didn't analyse and files
+            # else, the number of unsigned files.
             try:
                 self.result = subprocess.check_output(cmd, shell=True)
             except subprocess.CalledProcessError, e:
-                logger.error(e)
-                self.clean_up()
-                sys.exit(1)
+                logger.error(e.returncode)
+                if e.returncode < 0:
+                  self.clean_up()
+                  sys.exit(1)
+                else:
+                  self.result = e.output
 
             self.clean_up()
 
